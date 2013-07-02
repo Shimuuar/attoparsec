@@ -1,4 +1,5 @@
-{-# LANGUAGE BangPatterns, Rank2Types, OverloadedStrings, RecordWildCards, CPP #-}
+{-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, OverloadedStrings,
+    Rank2Types, RecordWildCards #-}
 -- |
 -- Module      :  Data.Attoparsec.Internal.Types
 -- Copyright   :  Bryan O'Sullivan 2007-2011
@@ -21,7 +22,6 @@ module Data.Attoparsec.Internal.Types
     , Added(..)
     , More(..)
     , addS
-    , noAdds
     , (<>)
     ) where
 
@@ -73,8 +73,8 @@ instance Functor (IResult t) where
     fmap = fmapR
     {-# INLINE fmap #-}
 
-newtype Input t = I {unI :: t}
-newtype Added t = A {unA :: t}
+newtype Input t = I {unI :: t} deriving (Monoid)
+newtype Added t = A {unA :: t} deriving (Monoid)
 
 -- | The core parser type.  This is parameterised over the type @t@ of
 -- string being processed.
@@ -109,19 +109,20 @@ type Success t a r = Input t -> Added t -> More -> a -> IResult t r
 data More = Complete | Incomplete
             deriving (Eq, Show)
 
+instance Monoid More where
+    mappend c@Complete _ = c
+    mappend _ m          = m
+    mempty               = Incomplete
+
 addS :: (Monoid t) =>
         Input t -> Added t -> More
      -> Input t -> Added t -> More
      -> (Input t -> Added t -> More -> r) -> r
 addS i0 a0 m0 _i1 a1 m1 f =
-    let !i = I (unI i0 <> unA a1)
-        a  = A (unA a0 <> unA a1)
-        !m = m0 <?> m1
+    let !i = i0 <> I (unA a1)
+        a  = a0 <> a1
+        !m = m0 <> m1
     in f i a m
-  where
-    Complete <?> _ = Complete
-    _ <?> Complete = Complete
-    _ <?> _        = Incomplete
 {-# INLINE addS #-}
 
 bindP :: Parser t a -> (a -> Parser t b) -> Parser t b
@@ -142,14 +143,15 @@ instance Monad (Parser t) where
 noAdds :: (Monoid t) =>
           Input t -> Added t -> More
        -> (Input t -> Added t -> More -> r) -> r
-noAdds i0 _a0 m0 f = f i0 (A mempty) m0
+noAdds i0 _a0 m0 f = f i0 mempty m0
 {-# INLINE noAdds #-}
 
 plus :: (Monoid t) => Parser t a -> Parser t a -> Parser t a
 plus a b = Parser $ \i0 a0 m0 kf ks ->
            let kf' i1 a1 m1 _ _ = addS i0 a0 m0 i1 a1 m1 $
                                   \ i2 a2 m2 -> runParser b i2 a2 m2 kf ks
-           in  noAdds i0 a0 m0 $ \i2 a2 m2 -> runParser a i2 a2 m2 kf' ks
+               ks' i1 a1 m1 = ks i1 (a0 <> a1) m1
+           in  noAdds i0 a0 m0 $ \i2 a2 m2 -> runParser a i2 a2 m2 kf' ks'
 {-# INLINE plus #-}
 
 instance (Monoid t) => MonadPlus (Parser t) where

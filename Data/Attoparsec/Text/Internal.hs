@@ -68,6 +68,7 @@ import Control.Applicative ((<|>), (<$>))
 import Control.Monad (when)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Internal.Types hiding (Parser, Input, Added, Failure, Success)
+import Data.Monoid (Monoid(..))
 import Data.String (IsString(..))
 import Data.Text (Text)
 import Prelude hiding (getChar, take, takeWhile)
@@ -115,7 +116,7 @@ prompt :: Input -> Added -> More
 prompt i0 a0 _m0 kf ks = Partial $ \s ->
     if T.null s
     then kf i0 a0 Complete
-    else ks (I (unI i0 <> s)) (A (unA a0 <> s)) Incomplete
+    else ks (i0 <> I s) (a0 <> A s) Incomplete
 
 -- | Immediately demand more input via a 'Partial' continuation
 -- result.
@@ -211,8 +212,7 @@ satisfyWith f p = do
 takeWith :: Int -> (Text -> Bool) -> Parser Text
 takeWith n p = do
   s <- ensure n
-  let h = unsafeTake n s
-      t = unsafeDrop n s
+  let (h,t) = T.splitAt n s
   if p h
     then put t >> return h
     else fail "takeWith"
@@ -506,12 +506,12 @@ successK i0 _a0 _m0 a = Done (unI i0) a
 
 -- | Run a parser.
 parse :: Parser a -> Text -> Result a
-parse m s = runParser m (I s) (A T.empty) Incomplete failK successK
+parse m s = runParser m (I s) mempty Incomplete failK successK
 {-# INLINE parse #-}
 
 -- | Run a parser that cannot be resupplied via a 'Partial' result.
 parseOnly :: Parser a -> Text -> Either String a
-parseOnly m s = case runParser m (I s) (A T.empty) Complete failK successK of
+parseOnly m s = case runParser m (I s) mempty Complete failK successK of
                   Fail _ _ err -> Left err
                   Done _ a     -> Right a
                   _            -> error "parseOnly: impossible error!"

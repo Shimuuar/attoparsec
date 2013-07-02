@@ -71,6 +71,7 @@ import Data.Attoparsec.ByteString.FastSet (charClass, memberWord8)
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Internal.Types
     hiding (Parser, Input, Added, Failure, Success)
+import Data.Monoid (Monoid(..))
 import Data.Word (Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (castPtr, minusPtr, plusPtr)
@@ -127,7 +128,7 @@ prompt :: Input -> Added -> More
 prompt i0 a0 _m0 kf ks = Partial $ \s ->
     if B.null s
     then kf i0 a0 Complete
-    else ks (I (unI i0 <> s)) (A (unA a0 <> s)) Incomplete
+    else ks (i0 <> I s) (a0 <> A s) Incomplete
 
 -- | Immediately demand more input via a 'Partial' continuation
 -- result.
@@ -218,7 +219,8 @@ storable = hack undefined
 -- | Consume @n@ bytes of input, but succeed only if the predicate
 -- returns 'True'.
 takeWith :: Int -> (B.ByteString -> Bool) -> Parser B.ByteString
-takeWith n p = do
+takeWith n0 p = do
+  let n = max n0 0
   s <- ensure n
   let h = B.unsafeTake n s
       t = B.unsafeDrop n s
@@ -490,12 +492,12 @@ successK i0 _a0 _m0 a = Done (unI i0) a
 
 -- | Run a parser.
 parse :: Parser a -> B.ByteString -> Result a
-parse m s = T.runParser m (I s) (A B.empty) Incomplete failK successK
+parse m s = T.runParser m (I s) mempty Incomplete failK successK
 {-# INLINE parse #-}
 
 -- | Run a parser that cannot be resupplied via a 'Partial' result.
 parseOnly :: Parser a -> B.ByteString -> Either String a
-parseOnly m s = case T.runParser m (I s) (A B.empty) Complete failK successK of
+parseOnly m s = case T.runParser m (I s) mempty Complete failK successK of
                   Fail _ _ err -> Left err
                   Done _ a     -> Right a
                   _            -> error "parseOnly: impossible error!"
